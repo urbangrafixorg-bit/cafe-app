@@ -146,11 +146,10 @@ if role == "Admin":
             st.bar_chart({f"Month {r[0]}": r[1] for r in report})
         else:
             st.info("No sales data available yet.")
-
-# ----------------------------
+            # ----------------------------
 # Customer Section
 # ----------------------------
-else:
+elif role == "Customer":
     st.header("🙋 Customer Portal")
 
     st.subheader("New Customer Registration")
@@ -169,52 +168,67 @@ else:
     st.markdown("---")
 
     st.subheader("Existing Customer Login")
-    customer_id = st.number_input("Enter Customer ID", min_value=1, step=1)
-    if st.button("Login"):
-        customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
+    customer_id_input = st.number_input("Enter Customer ID", min_value=1, step=1)
+    login_btn = st.button("Login")
+
+    if login_btn:
+        customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id_input,)).fetchone()
         if customer:
             st.success(f"Welcome back, {customer[1]}!")
 
-            menu_tab, order_tab = st.tabs(["🍽️ View Menu", "🛍️ Place Order"])
+            if "order" not in st.session_state:
+                st.session_state.order = []
 
-            with menu_tab:
-                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-                if menu_items:
-                    st.table(menu_items)
-                else:
-                    st.info("Menu not available.")
+            menu_items = cursor.execute("SELECT * FROM menu").fetchall()
+            if menu_items:
+                st.subheader("🍽️ Menu")
+                for item in menu_items:
+                    qty = st.number_input(
+                        f"{item[1]} (${item[3]})", min_value=0, step=1, key=f"item_{item[0]}"
+                    )
+                    # Update session state order list
+                    found = False
+                    for idx, (itm_id, _, _) in enumerate(st.session_state.order):
+                        if itm_id == item[0]:
+                            if qty > 0:
+                                st.session_state.order[idx] = (item[0], qty, item[3] * qty)
+                            else:
+                                st.session_state.order.pop(idx)
+                            found = True
+                            break
+                    if not found and qty > 0:
+                        st.session_state.order.append((item[0], qty, item[3] * qty))
 
-            with order_tab:
-                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-                if menu_items:
-                    order = []
-                    st.write("Select items to order:")
-                    for item in menu_items:
-                        qty = st.number_input(
-                            f"{item[1]} (${item[3]})", min_value=0, step=1, key=f"item_{item[0]}"
-                        )
-                        if qty > 0:
-                            order.append((item[0], qty, float(item[3]) * qty))
-
-                    upi_number = st.text_input("Enter UPI Number for payment")
+                # Show order summary
+                if st.session_state.order:
+                    st.markdown("---")
+                    st.subheader("📝 Order Summary")
+                    total_amount = 0
+                    summary_data = []
+                    for item_id, qty, subtotal in st.session_state.order:
+                        item_name = cursor.execute("SELECT name FROM menu WHERE id = ?", (item_id,)).fetchone()[0]
+                        summary_data.append([item_name, qty, f"${subtotal:.2f}"])
+                        total_amount += subtotal
+                    st.table(summary_data)
+                    st.write(f"**Total: ${total_amount:.2f}**")
 
                     if st.button("Place Order"):
-                        if order:
+                        cursor.execute(
+                            "INSERT INTO orders (customer_id, date) VALUES (?, ?)", 
+                            (customer_id_input, datetime.now())
+                        )
+                        order_id = cursor.lastrowid
+                        for item_id, qty, subtotal in st.session_state.order:
                             cursor.execute(
-                                "INSERT INTO orders (customer_id, date, upi_number) VALUES (?, ?, ?)", 
-                                (customer_id, datetime.now(), upi_number)
+                                "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
+                                (order_id, item_id, qty, subtotal)
                             )
-                            order_id = cursor.lastrowid
-                            for item_id, qty, total_price in order:
-                                cursor.execute(
-                                    "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
-                                    (order_id, item_id, qty, total_price)
-                                )
-                            conn.commit()
-                            st.success(f"Order placed successfully! Your Order ID is {order_id}")
-                        else:
-                            st.warning("No items selected for order.")
+                        conn.commit()
+                        st.success(f"✅ Order placed successfully! Your Order ID is {order_id}")
+                        st.session_state.order = []  # Clear cart
                 else:
-                    st.info("Menu not available.")
+                    st.info("Select items from the menu to see order summary.")
+            else:
+                st.info("Menu not available.")
         else:
             st.error("Invalid Customer ID.")
