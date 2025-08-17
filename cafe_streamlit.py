@@ -303,34 +303,42 @@ elif role == "Customer":
                             """, (st.session_state.customer_id, item[0], rating, review_text))
                             conn.commit()
                             st.success("Thank you for your review!")
+# ----------------------------
+# Order History & Reorder (Direct Ordering)
+st.markdown("---")
+st.subheader("📜 Your Order History")
+past_orders = cursor.execute("""
+    SELECT o.id, o.date, SUM(oi.total_price) 
+    FROM orders o
+    JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.customer_id = ?
+    GROUP BY o.id
+    ORDER BY o.date DESC
+""", (st.session_state.customer_id,)).fetchall()
 
-            # ----------------------------
-            # Order History & Reorder
-            st.markdown("---")
-            st.subheader("📜 Your Order History")
-            past_orders = cursor.execute("""
-                SELECT o.id, o.date, SUM(oi.total_price) 
-                FROM orders o
-                JOIN order_items oi ON oi.order_id = o.id
-                WHERE o.customer_id = ?
-                GROUP BY o.id
-                ORDER BY o.date DESC
-            """, (st.session_state.customer_id,)).fetchall()
-
-            if past_orders:
-                for order_id, date, total in past_orders:
-                    st.write(f"**Order ID:** {order_id} | **Date:** {date} | **Total:** ${total:.2f}")
-                    if st.button(f"Reorder {order_id}", key=f"reorder_{order_id}"):
-                        st.session_state.order = []
-                        items = cursor.execute("""
-                            SELECT item_id, quantity, total_price
-                            FROM order_items
-                            WHERE order_id = ?
-                        """, (order_id,)).fetchall()
-                        for item_id, qty, subtotal in items:
-                            st.session_state.order.append((item_id, qty, subtotal))
-                        st.success(f"Loaded Order {order_id} into your cart!")
-            else:
-                st.info("No past orders found.")
-        else:
-            st.info("Menu not available.")
+if past_orders:
+    for order_id, date, total in past_orders:
+        st.write(f"**Order ID:** {order_id} | **Date:** {date} | **Total:** ${total:.2f}")
+        if st.button(f"Reorder {order_id}", key=f"reorder_{order_id}"):
+            # Fetch past items
+            items = cursor.execute("""
+                SELECT item_id, quantity, total_price
+                FROM order_items
+                WHERE order_id = ?
+            """, (order_id,)).fetchall()
+            
+            # Place new order directly
+            cursor.execute(
+                "INSERT INTO orders (customer_id, date) VALUES (?, ?)", 
+                (st.session_state.customer_id, datetime.now())
+            )
+            new_order_id = cursor.lastrowid
+            for item_id, qty, subtotal in items:
+                cursor.execute(
+                    "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
+                    (new_order_id, item_id, qty, subtotal)
+                )
+            conn.commit()
+            st.success(f"✅ Order {new_order_id} placed successfully! (Reordered from Order {order_id})")
+else:
+    st.info("No past orders found.")
