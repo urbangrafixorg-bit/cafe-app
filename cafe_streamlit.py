@@ -227,70 +227,75 @@ elif role == "Customer":
     st.markdown("---")
 
     st.subheader("Existing Customer Login")
-    customer_id = st.number_input("Enter Customer ID", min_value=1, step=1)
-    if st.button("Login"):
-        customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
-        if customer:
-            st.success(f"Welcome back, {customer[1]}!")
+customer_id = st.number_input("Enter Customer ID", min_value=1, step=1)
 
-            menu_tab, order_tab = st.tabs(["🍽️ View Menu", "🛍️ Place Order"])
+if st.button("Login"):
+    customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
+    
+    if customer is None:
+        st.error("⚠️ No customer found with that ID. Please register first.")
+    else:
+        st.success(f"Welcome back, {customer[1]}!")  # customer[1] = name
 
-            with menu_tab:
-                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-                if menu_items:
-                    st.table(menu_items)
-                else:
-                    st.info("Menu not available.")
+        menu_tab, order_tab = st.tabs(["🍽️ View Menu", "🛍️ Place Order"])
 
-            with order_tab:
-                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-                if menu_items:
-                    order = []
-                    st.write("Select items to order:")
-                    for item in menu_items:
-                        qty = st.number_input(
-                            f"{item[1]} (${item[3]})", min_value=0, step=1, key=f"item_{item[0]}"
+        # View Menu
+        with menu_tab:
+            menu_items = cursor.execute("SELECT * FROM menu").fetchall()
+            if menu_items:
+                st.table(menu_items)
+            else:
+                st.info("Menu not available.")
+
+        # Place Order
+        with order_tab:
+            menu_items = cursor.execute("SELECT * FROM menu").fetchall()
+            if not menu_items:
+                st.info("Menu not available.")
+            else:
+                order = []
+                st.write("Select items to order:")
+
+                for i, item in enumerate(menu_items):
+                    qty = st.number_input(
+                        f"{item[1]} (${item[3]})",
+                        min_value=0, step=1,
+                        key=f"order_qty_{i}"  # ✅ safe unique key
+                    )
+                    if qty > 0:
+                        order.append((item[0], qty, float(item[3]) * qty))
+
+                upi_number = st.text_input("Enter UPI Number for payment", key="upi_number")
+
+                if st.button("Place Order"):
+                    if not order:
+                        st.warning("No items selected for order.")
+                    else:
+                        cursor.execute(
+                            "INSERT INTO orders (customer_id, date, upi_number) VALUES (?, ?, ?)", 
+                            (customer_id, datetime.now(), upi_number)
                         )
-                        if qty > 0:
-                            order.append((item[0], qty, float(item[3]) * qty))
+                        order_id = cursor.lastrowid
 
-                    upi_number = st.text_input("Enter UPI Number for payment")
-
-                    if st.button("Place Order"):
-                        if order:
+                        for item_id, qty, total_price in order:
                             cursor.execute(
-                                "INSERT INTO orders (customer_id, date, upi_number) VALUES (?, ?, ?)", 
-                                (customer_id, datetime.now(), upi_number)
+                                "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
+                                (order_id, item_id, qty, total_price)
                             )
-                            order_id = cursor.lastrowid
+                        conn.commit()
 
-                            for item_id, qty, total_price in order:
-                                cursor.execute(
-                                    "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
-                                    (order_id, item_id, qty, total_price)
-                                )
-                            conn.commit()
+                        st.success(f"🎉 Order placed successfully! Your Order ID is {order_id}")
 
-                            # ✅ Order confirmation
-                            st.success(f"🎉 Order placed successfully! Your Order ID is {order_id}")
+                        summary = []
+                        for item_id, qty, total in order:
+                            item = cursor.execute("SELECT name FROM menu WHERE id = ?", (item_id,)).fetchone()
+                            summary.append({"Item": item[0], "Quantity": qty, "Total": total})
 
-                            # ✅ Show order summary
-                            summary = []
-                            for item_id, qty, total in order:
-                                item = cursor.execute("SELECT name FROM menu WHERE id = ?", (item_id,)).fetchone()
-                                summary.append({"Item": item[0], "Quantity": qty, "Total": total})
+                        st.subheader("🧾 Order Summary")
+                        st.table(summary)
 
-                            st.subheader("🧾 Order Summary")
-                            st.table(summary)
+                        total_amount = sum(row["Total"] for row in summary)
+                        st.metric("💰 Total Amount", f"${total_amount:.2f}")
 
-                            total_amount = sum(row["Total"] for row in summary)
-                            st.metric("💰 Total Amount", f"${total_amount:.2f}")
+                        st.balloons()
 
-                            st.balloons()
-
-                        else:
-                            st.warning("No items selected for order.")
-                else:
-                    st.info("Menu not available.")
-        else:
-            st.error("Invalid Customer ID.")
