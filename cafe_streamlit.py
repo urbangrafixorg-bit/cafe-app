@@ -47,17 +47,55 @@ CREATE TABLE IF NOT EXISTS order_items (
 conn.commit()
 
 # ----------------------------
-# App UI
+# App UI Config
 # ----------------------------
 st.set_page_config(page_title="Cafe Central", page_icon="☕", layout="wide")
 st.title("☕ Cafe Central Management System")
 
-role = st.sidebar.radio("Login as:", ["Customer", "Admin"])
+role = st.sidebar.radio("Login as:", ["Dashboard", "Customer", "Admin"])
+
+# ----------------------------
+# Dashboard (New!)
+# ----------------------------
+if role == "Dashboard":
+    st.header("📊 Overview Dashboard")
+    st.write("Welcome to **Cafe Central**! Here's a quick look at our cafe activity.")
+
+    # Quick stats
+    total_customers = cursor.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
+    total_orders = cursor.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+    total_sales = cursor.execute("SELECT COALESCE(SUM(total_price), 0) FROM order_items").fetchone()[0]
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("👥 Total Customers", total_customers)
+    with col2:
+        st.metric("🛍️ Total Orders", total_orders)
+    with col3:
+        st.metric("💰 Total Sales", f"${total_sales:,.2f}")
+
+    st.markdown("---")
+
+    # Show latest 5 orders
+    st.subheader("🆕 Recent Orders")
+    recent_orders = cursor.execute("""
+        SELECT o.id, c.name, o.date, SUM(oi.total_price) as amount
+        FROM orders o
+        JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN order_items oi ON oi.order_id = o.id
+        GROUP BY o.id
+        ORDER BY o.date DESC LIMIT 5
+    """).fetchall()
+
+    if recent_orders:
+        st.table(recent_orders)
+    else:
+        st.info("No orders yet. Add some customers and orders to see data here!")
 
 # ----------------------------
 # Admin Section
 # ----------------------------
-if role == "Admin":
+elif role == "Admin":
     st.header("🔑 Admin Dashboard")
     choice = st.sidebar.selectbox("Choose an action", [
         "View Customers",
@@ -69,26 +107,17 @@ if role == "Admin":
     if choice == "View Customers":
         st.subheader("👥 Customers List")
         customers = cursor.execute("SELECT * FROM customers").fetchall()
-        if customers:
-            st.table(customers)
-        else:
-            st.info("No customers found.")
+        st.table(customers) if customers else st.info("No customers found.")
 
     elif choice == "View Orders":
         st.subheader("🛒 Orders List")
         orders = cursor.execute("SELECT * FROM orders").fetchall()
-        if orders:
-            st.table(orders)
-        else:
-            st.info("No orders placed yet.")
+        st.table(orders) if orders else st.info("No orders placed yet.")
 
     elif choice == "Manage Menu":
         st.subheader("📋 Manage Menu")
         menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-        if menu_items:
-            st.table(menu_items)
-        else:
-            st.info("Menu is empty.")
+        st.table(menu_items) if menu_items else st.info("Menu is empty.")
 
         st.markdown("---")
         action = st.radio("Choose Action:", ["Add Item", "Remove Item", "Update Item"])
@@ -133,23 +162,47 @@ if role == "Admin":
                     st.error("Item not found.")
 
     elif choice == "View Sales Report":
-        st.subheader("📊 Monthly Sales Report")
+    st.subheader("📊 Sales Report")
+
+    report_type = st.radio("Select Report Type:", ["Daily", "Monthly"], horizontal=True)
+
+    if report_type == "Daily":
         report = cursor.execute("""
-            SELECT strftime('%m', o.date) AS month, SUM(oi.total_price) AS total_sales
+            SELECT strftime('%Y-%m-%d', o.date) AS day, SUM(oi.total_price) AS total_sales
             FROM order_items oi
             JOIN orders o ON oi.order_id = o.id
-            GROUP BY strftime('%m', o.date)
+            GROUP BY strftime('%Y-%m-%d', o.date)
+            ORDER BY day DESC
         """).fetchall()
+
         if report:
+            st.write("### 🗓 Daily Sales")
             st.table(report)
-            st.bar_chart({f"Month {r[0]}": r[1] for r in report})
+            st.line_chart({r[0]: r[1] for r in report})
         else:
-            st.info("No sales data available yet.")
+            st.info("No daily sales data available yet.")
+
+    else:  # Monthly
+        report = cursor.execute("""
+            SELECT strftime('%Y-%m', o.date) AS month, SUM(oi.total_price) AS total_sales
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            GROUP BY strftime('%Y-%m', o.date)
+            ORDER BY month DESC
+        """).fetchall()
+
+        if report:
+            st.write("### 📅 Monthly Sales")
+            st.table(report)
+            st.bar_chart({r[0]: r[1] for r in report})
+        else:
+            st.info("No monthly sales data available yet.")
+
 
 # ----------------------------
 # Customer Section
 # ----------------------------
-else:
+elif role == "Customer":
     st.header("🙋 Customer Portal")
 
     st.subheader("New Customer Registration")
@@ -178,10 +231,7 @@ else:
 
             with menu_tab:
                 menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-                if menu_items:
-                    st.table(menu_items)
-                else:
-                    st.info("Menu not available.")
+                st.table(menu_items) if menu_items else st.info("Menu not available.")
 
             with order_tab:
                 menu_items = cursor.execute("SELECT * FROM menu").fetchall()
