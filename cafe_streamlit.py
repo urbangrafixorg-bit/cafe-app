@@ -1,4 +1,3 @@
-
 # streamlit_app.py
 import streamlit as st
 import sqlite3
@@ -135,17 +134,30 @@ if role == "Admin":
 
     elif choice == "View Sales Report":
         st.subheader("📊 Monthly Sales Report")
-        report = cursor.execute("""
+        monthly_report = cursor.execute("""
             SELECT strftime('%m', o.date) AS month, SUM(oi.total_price) AS total_sales
             FROM order_items oi
             JOIN orders o ON oi.order_id = o.id
             GROUP BY strftime('%m', o.date)
         """).fetchall()
-        if report:
-            st.table(report)
-            st.bar_chart({f"Month {r[0]}": r[1] for r in report})
+        if monthly_report:
+            st.table(monthly_report)
+            st.bar_chart({f"Month {r[0]}": r[1] for r in monthly_report})
         else:
             st.info("No sales data available yet.")
+
+        st.subheader("📅 Daily Sales Report")
+        daily_report = cursor.execute("""
+            SELECT strftime('%Y-%m-%d', o.date) AS day, SUM(oi.total_price) AS total_sales
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            GROUP BY strftime('%Y-%m-%d', o.date)
+        """).fetchall()
+        if daily_report:
+            st.table(daily_report)
+            st.bar_chart({r[0]: r[1] for r in daily_report})
+        else:
+            st.info("No daily sales data yet.")
 
 # ----------------------------
 # Customer Section
@@ -200,38 +212,34 @@ elif role == "Customer":
         menu_items = cursor.execute("SELECT * FROM menu").fetchall()
         if menu_items:
             st.subheader("🍽️ Menu")
-            for item in menu_items:
-                qty = st.number_input(
-                    f"{item[1]} (${item[3]})",
-                    min_value=0,
-                    step=1,
-                    key=f"item_{item[0]}"
-                )
-                # Update session state order list
-                found = False
-                for idx, (itm_id, _, _) in enumerate(st.session_state.order):
-                    if itm_id == item[0]:
-                        if qty > 0:
-                            st.session_state.order[idx] = (item[0], qty, item[3] * qty)
-                        else:
-                            st.session_state.order.pop(idx)
-                        found = True
-                        break
-                if not found and qty > 0:
-                    st.session_state.order.append((item[0], qty, item[3] * qty))
+            with st.form("menu_form"):
+                order_quantities = {}
+                for item in menu_items:
+                    order_quantities[item[0]] = st.number_input(
+                        f"{item[1]} (${item[3]})",
+                        min_value=0,
+                        step=1,
+                        key=f"item_{item[0]}"
+                    )
+                submit_order = st.form_submit_button("Update Cart")
 
-            # Show order summary
+            # Update session state order list
+            st.session_state.order = []
+            total_amount = 0
+            summary_data = []
+            for item_id, qty in order_quantities.items():
+                if qty > 0:
+                    price, name = cursor.execute(
+                        "SELECT price, name FROM menu WHERE id = ?", (item_id,)
+                    ).fetchone()
+                    subtotal = price * qty
+                    st.session_state.order.append((item_id, qty, subtotal))
+                    summary_data.append([name, qty, f"${subtotal:.2f}"])
+                    total_amount += subtotal
+
             if st.session_state.order:
                 st.markdown("---")
                 st.subheader("📝 Order Summary")
-                total_amount = 0
-                summary_data = []
-                for item_id, qty, subtotal in st.session_state.order:
-                    item_name = cursor.execute(
-                        "SELECT name FROM menu WHERE id = ?", (item_id,)
-                    ).fetchone()[0]
-                    summary_data.append([item_name, qty, f"${subtotal:.2f}"])
-                    total_amount += subtotal
                 st.table(summary_data)
                 st.write(f"**Total: ${total_amount:.2f}**")
 
