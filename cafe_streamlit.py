@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 conn.commit()
 
 # ----------------------------
-# App Config
+# App UI Config
 # ----------------------------
 st.set_page_config(page_title="Cafe Central", page_icon="☕", layout="wide")
 st.title("☕ Cafe Central Management System")
@@ -55,26 +55,28 @@ st.title("☕ Cafe Central Management System")
 role = st.sidebar.radio("Login as:", ["Dashboard", "Customer", "Admin"])
 
 # ----------------------------
-# Dashboard
+# Dashboard (New!)
 # ----------------------------
 if role == "Dashboard":
     st.header("📊 Overview Dashboard")
     st.write("Welcome to **Cafe Central**! Here's a quick look at our cafe activity.")
 
+    # Quick stats
     total_customers = cursor.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
     total_orders = cursor.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
     total_sales = cursor.execute("SELECT COALESCE(SUM(total_price), 0) FROM order_items").fetchone()[0]
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("👥 Customers", total_customers)
+        st.metric("👥 Total Customers", total_customers)
     with col2:
-        st.metric("🛍️ Orders", total_orders)
+        st.metric("🛍️ Total Orders", total_orders)
     with col3:
-        st.metric("💰 Sales", f"${total_sales:,.2f}")
+        st.metric("💰 Total Sales", f"${total_sales:,.2f}")
 
     st.markdown("---")
 
+    # Show latest 5 orders
     st.subheader("🆕 Recent Orders")
     recent_orders = cursor.execute("""
         SELECT o.id, c.name, o.date, SUM(oi.total_price) as amount
@@ -88,7 +90,7 @@ if role == "Dashboard":
     if recent_orders:
         st.table(recent_orders)
     else:
-        st.info("No orders yet.")
+        st.info("No orders yet. Add some customers and orders to see data here!")
 
 # ----------------------------
 # Admin Section
@@ -105,26 +107,17 @@ elif role == "Admin":
     if choice == "View Customers":
         st.subheader("👥 Customers List")
         customers = cursor.execute("SELECT * FROM customers").fetchall()
-        if customers:
-            st.table(customers)
-        else:
-            st.info("No customers found.")
+        st.table(customers) if customers else st.info("No customers found.")
 
     elif choice == "View Orders":
         st.subheader("🛒 Orders List")
         orders = cursor.execute("SELECT * FROM orders").fetchall()
-        if orders:
-            st.table(orders)
-        else:
-            st.info("No orders placed yet.")
+        st.table(orders) if orders else st.info("No orders placed yet.")
 
     elif choice == "Manage Menu":
         st.subheader("📋 Manage Menu")
         menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-        if menu_items:
-            st.table(menu_items)
-        else:
-            st.info("Menu is empty.")
+        st.table(menu_items) if menu_items else st.info("Menu is empty.")
 
         st.markdown("---")
         action = st.radio("Choose Action:", ["Add Item", "Remove Item", "Update Item"])
@@ -169,41 +162,42 @@ elif role == "Admin":
                     st.error("Item not found.")
 
     elif choice == "View Sales Report":
-        st.subheader("📊 Sales Report")
+    st.subheader("📊 Sales Report")
 
-        report_type = st.radio("Select Report Type:", ["Daily", "Monthly"], horizontal=True)
+    report_type = st.radio("Select Report Type:", ["Daily", "Monthly"], horizontal=True)
 
-        if report_type == "Daily":
-            report = cursor.execute("""
-                SELECT strftime('%Y-%m-%d', o.date) AS day, SUM(oi.total_price) AS total_sales
-                FROM order_items oi
-                JOIN orders o ON oi.order_id = o.id
-                GROUP BY strftime('%Y-%m-%d', o.date)
-                ORDER BY day DESC
-            """).fetchall()
+    if report_type == "Daily":
+        report = cursor.execute("""
+            SELECT strftime('%Y-%m-%d', o.date) AS day, SUM(oi.total_price) AS total_sales
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            GROUP BY strftime('%Y-%m-%d', o.date)
+            ORDER BY day DESC
+        """).fetchall()
 
-            if report:
-                st.write("### 🗓 Daily Sales")
-                st.table(report)
-                st.line_chart({r[0]: r[1] for r in report})
-            else:
-                st.info("No daily sales data available yet.")
+        if report:
+            st.write("### 🗓 Daily Sales")
+            st.table(report)
+            st.line_chart({r[0]: r[1] for r in report})
+        else:
+            st.info("No daily sales data available yet.")
 
-        else:  # Monthly
-            report = cursor.execute("""
-                SELECT strftime('%Y-%m', o.date) AS month, SUM(oi.total_price) AS total_sales
-                FROM order_items oi
-                JOIN orders o ON oi.order_id = o.id
-                GROUP BY strftime('%Y-%m', o.date)
-                ORDER BY month DESC
-            """).fetchall()
+    else:  # Monthly
+        report = cursor.execute("""
+            SELECT strftime('%Y-%m', o.date) AS month, SUM(oi.total_price) AS total_sales
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            GROUP BY strftime('%Y-%m', o.date)
+            ORDER BY month DESC
+        """).fetchall()
 
-            if report:
-                st.write("### 📅 Monthly Sales")
-                st.table(report)
-                st.bar_chart({r[0]: r[1] for r in report})
-            else:
-                st.info("No monthly sales data available yet.")
+        if report:
+            st.write("### 📅 Monthly Sales")
+            st.table(report)
+            st.bar_chart({r[0]: r[1] for r in report})
+        else:
+            st.info("No monthly sales data available yet.")
+
 
 # ----------------------------
 # Customer Section
@@ -227,75 +221,49 @@ elif role == "Customer":
     st.markdown("---")
 
     st.subheader("Existing Customer Login")
-customer_id = st.number_input("Enter Customer ID", min_value=1, step=1)
+    customer_id = st.number_input("Enter Customer ID", min_value=1, step=1)
+    if st.button("Login"):
+        customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
+        if customer:
+            st.success(f"Welcome back, {customer[1]}!")
 
-if st.button("Login"):
-    customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
-    
-    if customer is None:
-        st.error("⚠️ No customer found with that ID. Please register first.")
-    else:
-        st.success(f"Welcome back, {customer[1]}!")  # customer[1] = name
+            menu_tab, order_tab = st.tabs(["🍽️ View Menu", "🛍️ Place Order"])
 
-        menu_tab, order_tab = st.tabs(["🍽️ View Menu", "🛍️ Place Order"])
+            with menu_tab:
+                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
+                st.table(menu_items) if menu_items else st.info("Menu not available.")
 
-        # View Menu
-        with menu_tab:
-            menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-            if menu_items:
-                st.table(menu_items)
-            else:
-                st.info("Menu not available.")
-
-        # Place Order
-        with order_tab:
-            menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-            if not menu_items:
-                st.info("Menu not available.")
-            else:
-                order = []
-                st.write("Select items to order:")
-
-                for i, item in enumerate(menu_items):
-                    qty = st.number_input(
-                        f"{item[1]} (${item[3]})",
-                        min_value=0, step=1,
-                        key=f"order_qty_{i}"  # ✅ safe unique key
-                    )
-                    if qty > 0:
-                        order.append((item[0], qty, float(item[3]) * qty))
-
-                upi_number = st.text_input("Enter UPI Number for payment", key="upi_number")
-
-                if st.button("Place Order"):
-                    if not order:
-                        st.warning("No items selected for order.")
-                    else:
-                        cursor.execute(
-                            "INSERT INTO orders (customer_id, date, upi_number) VALUES (?, ?, ?)", 
-                            (customer_id, datetime.now(), upi_number)
+            with order_tab:
+                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
+                if menu_items:
+                    order = []
+                    st.write("Select items to order:")
+                    for item in menu_items:
+                        qty = st.number_input(
+                            f"{item[1]} (${item[3]})", min_value=0, step=1, key=f"item_{item[0]}"
                         )
-                        order_id = cursor.lastrowid
+                        if qty > 0:
+                            order.append((item[0], qty, float(item[3]) * qty))
 
-                        for item_id, qty, total_price in order:
+                    upi_number = st.text_input("Enter UPI Number for payment")
+
+                    if st.button("Place Order"):
+                        if order:
                             cursor.execute(
-                                "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
-                                (order_id, item_id, qty, total_price)
+                                "INSERT INTO orders (customer_id, date, upi_number) VALUES (?, ?, ?)", 
+                                (customer_id, datetime.now(), upi_number)
                             )
-                        conn.commit()
-
-                        st.success(f"🎉 Order placed successfully! Your Order ID is {order_id}")
-
-                        summary = []
-                        for item_id, qty, total in order:
-                            item = cursor.execute("SELECT name FROM menu WHERE id = ?", (item_id,)).fetchone()
-                            summary.append({"Item": item[0], "Quantity": qty, "Total": total})
-
-                        st.subheader("🧾 Order Summary")
-                        st.table(summary)
-
-                        total_amount = sum(row["Total"] for row in summary)
-                        st.metric("💰 Total Amount", f"${total_amount:.2f}")
-
-                        st.balloons()
-
+                            order_id = cursor.lastrowid
+                            for item_id, qty, total_price in order:
+                                cursor.execute(
+                                    "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
+                                    (order_id, item_id, qty, total_price)
+                                )
+                            conn.commit()
+                            st.success(f"Order placed successfully! Your Order ID is {order_id}")
+                        else:
+                            st.warning("No items selected for order.")
+                else:
+                    st.info("Menu not available.")
+        else:
+            st.error("Invalid Customer ID.")
