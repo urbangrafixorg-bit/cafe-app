@@ -105,17 +105,26 @@ elif role == "Admin":
     if choice == "View Customers":
         st.subheader("👥 Customers List")
         customers = cursor.execute("SELECT * FROM customers").fetchall()
-        st.table(customers) if customers else st.info("No customers found.")
+        if customers:
+            st.table(customers)
+        else:
+            st.info("No customers found.")
 
     elif choice == "View Orders":
         st.subheader("🛒 Orders List")
         orders = cursor.execute("SELECT * FROM orders").fetchall()
-        st.table(orders) if orders else st.info("No orders placed yet.")
+        if orders:
+            st.table(orders)
+        else:
+            st.info("No orders placed yet.")
 
     elif choice == "Manage Menu":
         st.subheader("📋 Manage Menu")
         menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-        st.table(menu_items) if menu_items else st.info("Menu is empty.")
+        if menu_items:
+            st.table(menu_items)
+        else:
+            st.info("Menu is empty.")
 
         st.markdown("---")
         action = st.radio("Choose Action:", ["Add Item", "Remove Item", "Update Item"])
@@ -228,7 +237,10 @@ elif role == "Customer":
 
             with menu_tab:
                 menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-                st.table(menu_items) if menu_items else st.info("Menu not available.")
+                if menu_items:
+                    st.table(menu_items)
+                else:
+                    st.info("Menu not available.")
 
             with order_tab:
                 menu_items = cursor.execute("SELECT * FROM menu").fetchall()
