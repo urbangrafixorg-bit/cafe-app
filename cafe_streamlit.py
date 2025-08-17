@@ -263,13 +263,31 @@ elif role == "Customer":
                                 (customer_id, datetime.now(), upi_number)
                             )
                             order_id = cursor.lastrowid
+
                             for item_id, qty, total_price in order:
                                 cursor.execute(
                                     "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
                                     (order_id, item_id, qty, total_price)
                                 )
                             conn.commit()
-                            st.success(f"Order placed successfully! Your Order ID is {order_id}")
+
+                            # ✅ Order confirmation
+                            st.success(f"🎉 Order placed successfully! Your Order ID is {order_id}")
+
+                            # ✅ Show order summary
+                            summary = []
+                            for item_id, qty, total in order:
+                                item = cursor.execute("SELECT name FROM menu WHERE id = ?", (item_id,)).fetchone()
+                                summary.append({"Item": item[0], "Quantity": qty, "Total": total})
+
+                            st.subheader("🧾 Order Summary")
+                            st.table(summary)
+
+                            total_amount = sum(row["Total"] for row in summary)
+                            st.metric("💰 Total Amount", f"${total_amount:.2f}")
+
+                            st.balloons()
+
                         else:
                             st.warning("No items selected for order.")
                 else:
