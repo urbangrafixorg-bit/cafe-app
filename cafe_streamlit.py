@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS order_items (
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY (item_id) REFERENCES menu(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+    review TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES menu(id) ON DELETE CASCADE
+);
 """)
 conn.commit()
 
@@ -86,7 +97,12 @@ if role == "Admin":
         st.subheader("📋 Manage Menu")
         menu_items = cursor.execute("SELECT * FROM menu").fetchall()
         if menu_items:
-            st.table(menu_items)
+            for item in menu_items:
+                reviews = cursor.execute("""
+                    SELECT rating FROM reviews WHERE item_id = ?
+                """, (item[0],)).fetchall()
+                avg_rating = sum(r[0] for r in reviews) / len(reviews) if reviews else 0
+                st.write(f"ID: {item[0]} | {item[1]} | Category: {item[2]} | Price: ${item[3]:.2f} | Avg Rating: {avg_rating:.1f} ⭐")
         else:
             st.info("Menu is empty.")
 
@@ -257,5 +273,64 @@ elif role == "Customer":
                     conn.commit()
                     st.success(f"✅ Order placed successfully! Your Order ID is {order_id}")
                     st.session_state.order = []  # Clear cart
+
+            # ----------------------------
+            # Ratings & Reviews
+            st.markdown("---")
+            st.subheader("⭐ Rate & Review Menu Items")
+            for item in menu_items:
+                with st.expander(f"{item[1]} (${item[3]})"):
+                    st.write(f"Category: {item[2]}")
+                    reviews = cursor.execute("""
+                        SELECT rating, review FROM reviews WHERE item_id = ?
+                    """, (item[0],)).fetchall()
+                    if reviews:
+                        avg_rating = sum(r[0] for r in reviews) / len(reviews)
+                        st.write(f"**Average Rating:** {avg_rating:.1f} ⭐")
+                        for r in reviews:
+                            st.write(f"Rating: {r[0]} ⭐ | Review: {r[1]}")
+                    else:
+                        st.write("No reviews yet.")
+
+                    with st.form(f"review_form_{item[0]}"):
+                        rating = st.slider("Rating (1-5)", 1, 5, 5)
+                        review_text = st.text_area("Write a review")
+                        submit_review = st.form_submit_button("Submit Review")
+                        if submit_review:
+                            cursor.execute("""
+                                INSERT INTO reviews (customer_id, item_id, rating, review)
+                                VALUES (?, ?, ?, ?)
+                            """, (st.session_state.customer_id, item[0], rating, review_text))
+                            conn.commit()
+                            st.success("Thank you for your review!")
+
+            # ----------------------------
+            # Order History & Reorder
+            st.markdown("---")
+            st.subheader("📜 Your Order History")
+            past_orders = cursor.execute("""
+                SELECT o.id, o.date, SUM(oi.total_price) 
+                FROM orders o
+                JOIN order_items oi ON oi.order_id = o.id
+                WHERE o.customer_id = ?
+                GROUP BY o.id
+                ORDER BY o.date DESC
+            """, (st.session_state.customer_id,)).fetchall()
+
+            if past_orders:
+                for order_id, date, total in past_orders:
+                    st.write(f"**Order ID:** {order_id} | **Date:** {date} | **Total:** ${total:.2f}")
+                    if st.button(f"Reorder {order_id}", key=f"reorder_{order_id}"):
+                        st.session_state.order = []
+                        items = cursor.execute("""
+                            SELECT item_id, quantity, total_price
+                            FROM order_items
+                            WHERE order_id = ?
+                        """, (order_id,)).fetchall()
+                        for item_id, qty, subtotal in items:
+                            st.session_state.order.append((item_id, qty, subtotal))
+                        st.success(f"Loaded Order {order_id} into your cart!")
+            else:
+                st.info("No past orders found.")
         else:
             st.info("Menu not available.")
