@@ -146,12 +146,14 @@ if role == "Admin":
             st.bar_chart({f"Month {r[0]}": r[1] for r in report})
         else:
             st.info("No sales data available yet.")
-            # ----------------------------
+
+# ----------------------------
 # Customer Section
 # ----------------------------
 elif role == "Customer":
     st.header("🙋 Customer Portal")
 
+    # New Customer Registration
     st.subheader("New Customer Registration")
     with st.form("register_form"):
         name = st.text_input("Name")
@@ -159,76 +161,93 @@ elif role == "Customer":
         email = st.text_input("Email")
         register_btn = st.form_submit_button("Register")
         if register_btn and name and phone and email:
-            cursor.execute("INSERT INTO customers (name, phone, email) VALUES (?, ?, ?)", 
-                           (name, phone, email))
+            cursor.execute(
+                "INSERT INTO customers (name, phone, email) VALUES (?, ?, ?)", 
+                (name, phone, email)
+            )
             conn.commit()
             customer_id = cursor.lastrowid
             st.success(f"Registered successfully! Your Customer ID is {customer_id}")
 
     st.markdown("---")
 
-    st.subheader("Existing Customer Login")
-    customer_id_input = st.number_input("Enter Customer ID", min_value=1, step=1)
-    login_btn = st.button("Login")
+    # Existing Customer Login
+    if "customer_id" not in st.session_state:
+        st.session_state.customer_id = None
 
-    if login_btn:
-        customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id_input,)).fetchone()
-        if customer:
-            st.success(f"Welcome back, {customer[1]}!")
-
-            if "order" not in st.session_state:
-                st.session_state.order = []
-
-            menu_items = cursor.execute("SELECT * FROM menu").fetchall()
-            if menu_items:
-                st.subheader("🍽️ Menu")
-                for item in menu_items:
-                    qty = st.number_input(
-                        f"{item[1]} (${item[3]})", min_value=0, step=1, key=f"item_{item[0]}"
-                    )
-                    # Update session state order list
-                    found = False
-                    for idx, (itm_id, _, _) in enumerate(st.session_state.order):
-                        if itm_id == item[0]:
-                            if qty > 0:
-                                st.session_state.order[idx] = (item[0], qty, item[3] * qty)
-                            else:
-                                st.session_state.order.pop(idx)
-                            found = True
-                            break
-                    if not found and qty > 0:
-                        st.session_state.order.append((item[0], qty, item[3] * qty))
-
-                # Show order summary
-                if st.session_state.order:
-                    st.markdown("---")
-                    st.subheader("📝 Order Summary")
-                    total_amount = 0
-                    summary_data = []
-                    for item_id, qty, subtotal in st.session_state.order:
-                        item_name = cursor.execute("SELECT name FROM menu WHERE id = ?", (item_id,)).fetchone()[0]
-                        summary_data.append([item_name, qty, f"${subtotal:.2f}"])
-                        total_amount += subtotal
-                    st.table(summary_data)
-                    st.write(f"**Total: ${total_amount:.2f}**")
-
-                    if st.button("Place Order"):
-                        cursor.execute(
-                            "INSERT INTO orders (customer_id, date) VALUES (?, ?)", 
-                            (customer_id_input, datetime.now())
-                        )
-                        order_id = cursor.lastrowid
-                        for item_id, qty, subtotal in st.session_state.order:
-                            cursor.execute(
-                                "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
-                                (order_id, item_id, qty, subtotal)
-                            )
-                        conn.commit()
-                        st.success(f"✅ Order placed successfully! Your Order ID is {order_id}")
-                        st.session_state.order = []  # Clear cart
-                else:
-                    st.info("Select items from the menu to see order summary.")
+    if st.session_state.customer_id is None:
+        customer_id_input = st.number_input("Enter Customer ID", min_value=1, step=1)
+        if st.button("Login"):
+            customer = cursor.execute(
+                "SELECT * FROM customers WHERE id = ?", (customer_id_input,)
+            ).fetchone()
+            if customer:
+                st.session_state.customer_id = customer[0]
+                st.success(f"Welcome back, {customer[1]}!")
             else:
-                st.info("Menu not available.")
+                st.error("Invalid Customer ID.")
+
+    if st.session_state.customer_id:
+        customer = cursor.execute(
+            "SELECT * FROM customers WHERE id = ?", (st.session_state.customer_id,)
+        ).fetchone()
+        st.success(f"Welcome back, {customer[1]}!")
+
+        # Initialize order if not in session state
+        if "order" not in st.session_state:
+            st.session_state.order = []
+
+        menu_items = cursor.execute("SELECT * FROM menu").fetchall()
+        if menu_items:
+            st.subheader("🍽️ Menu")
+            for item in menu_items:
+                qty = st.number_input(
+                    f"{item[1]} (${item[3]})",
+                    min_value=0,
+                    step=1,
+                    key=f"item_{item[0]}"
+                )
+                # Update session state order list
+                found = False
+                for idx, (itm_id, _, _) in enumerate(st.session_state.order):
+                    if itm_id == item[0]:
+                        if qty > 0:
+                            st.session_state.order[idx] = (item[0], qty, item[3] * qty)
+                        else:
+                            st.session_state.order.pop(idx)
+                        found = True
+                        break
+                if not found and qty > 0:
+                    st.session_state.order.append((item[0], qty, item[3] * qty))
+
+            # Show order summary
+            if st.session_state.order:
+                st.markdown("---")
+                st.subheader("📝 Order Summary")
+                total_amount = 0
+                summary_data = []
+                for item_id, qty, subtotal in st.session_state.order:
+                    item_name = cursor.execute(
+                        "SELECT name FROM menu WHERE id = ?", (item_id,)
+                    ).fetchone()[0]
+                    summary_data.append([item_name, qty, f"${subtotal:.2f}"])
+                    total_amount += subtotal
+                st.table(summary_data)
+                st.write(f"**Total: ${total_amount:.2f}**")
+
+                if st.button("Place Order"):
+                    cursor.execute(
+                        "INSERT INTO orders (customer_id, date) VALUES (?, ?)", 
+                        (st.session_state.customer_id, datetime.now())
+                    )
+                    order_id = cursor.lastrowid
+                    for item_id, qty, subtotal in st.session_state.order:
+                        cursor.execute(
+                            "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
+                            (order_id, item_id, qty, subtotal)
+                        )
+                    conn.commit()
+                    st.success(f"✅ Order placed successfully! Your Order ID is {order_id}")
+                    st.session_state.order = []  # Clear cart
         else:
-            st.error("Invalid Customer ID.")
+            st.info("Menu not available.")
