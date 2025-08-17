@@ -1,28 +1,57 @@
 # streamlit_app.py
 import streamlit as st
-import mysql.connector
+import sqlite3
 from datetime import datetime
 
 # ----------------------------
-# Database Connection Function
+# Database Setup
 # ----------------------------
-def get_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        database="cafe_central",
-        user="root",
-        passwd="root"
-    )
+conn = sqlite3.connect("cafe_central.db", check_same_thread=False)
+cursor = conn.cursor()
+
+# Create tables if they don’t exist
+cursor.executescript("""
+CREATE TABLE IF NOT EXISTS customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS menu (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    price REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    upi_number TEXT,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    total_price REAL NOT NULL,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES menu(id) ON DELETE CASCADE
+);
+""")
+conn.commit()
 
 # ----------------------------
-# App Title
+# App UI
 # ----------------------------
 st.set_page_config(page_title="Cafe Central", page_icon="☕", layout="wide")
 st.title("☕ Cafe Central Management System")
 
-# ----------------------------
-# Role Selection
-# ----------------------------
 role = st.sidebar.radio("Login as:", ["Customer", "Admin"])
 
 # ----------------------------
@@ -37,14 +66,9 @@ if role == "Admin":
         "View Sales Report"
     ])
 
-    conn = get_connection()
-
     if choice == "View Customers":
         st.subheader("👥 Customers List")
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM customers")
-        customers = cursor.fetchall()
-        cursor.close()
+        customers = cursor.execute("SELECT * FROM customers").fetchall()
         if customers:
             st.table(customers)
         else:
@@ -52,10 +76,7 @@ if role == "Admin":
 
     elif choice == "View Orders":
         st.subheader("🛒 Orders List")
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM orders")
-        orders = cursor.fetchall()
-        cursor.close()
+        orders = cursor.execute("SELECT * FROM orders").fetchall()
         if orders:
             st.table(orders)
         else:
@@ -63,12 +84,7 @@ if role == "Admin":
 
     elif choice == "Manage Menu":
         st.subheader("📋 Manage Menu")
-
-        # Display current menu
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM menu")
-        menu_items = cursor.fetchall()
-        cursor.close()
+        menu_items = cursor.execute("SELECT * FROM menu").fetchall()
         if menu_items:
             st.table(menu_items)
         else:
@@ -84,77 +100,58 @@ if role == "Admin":
                 price = st.number_input("Price", min_value=0.0, format="%.2f")
                 submitted = st.form_submit_button("Add Item")
                 if submitted and name and category:
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO menu (name, category, price) VALUES (%s, %s, %s)", 
+                    cursor.execute("INSERT INTO menu (name, category, price) VALUES (?, ?, ?)", 
                                    (name, category, price))
                     conn.commit()
-                    cursor.close()
                     st.success(f"Added '{name}' to the menu!")
 
         elif action == "Remove Item":
             item_id = st.number_input("Enter Item ID to remove", min_value=1, step=1)
             if st.button("Remove Item"):
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM menu WHERE id = %s", (item_id,))
+                cursor.execute("DELETE FROM menu WHERE id = ?", (item_id,))
                 conn.commit()
-                cursor.close()
                 st.warning(f"Item with ID {item_id} removed.")
 
         elif action == "Update Item":
             item_id = st.number_input("Enter Item ID to update", min_value=1, step=1)
             if st.button("Load Item"):
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM menu WHERE id = %s", (item_id,))
-                item = cursor.fetchone()
-                cursor.close()
+                item = cursor.execute("SELECT * FROM menu WHERE id = ?", (item_id,)).fetchone()
                 if item:
                     with st.form("update_item_form"):
-                        new_name = st.text_input("Item Name", item["name"])
-                        new_category = st.text_input("Category", item["category"])
-                        new_price = st.number_input("Price", value=float(item["price"]))
+                        new_name = st.text_input("Item Name", item[1])
+                        new_category = st.text_input("Category", item[2])
+                        new_price = st.number_input("Price", value=float(item[3]))
                         submitted = st.form_submit_button("Update Item")
                         if submitted:
-                            cursor = conn.cursor()
                             cursor.execute(
-                                "UPDATE menu SET name=%s, category=%s, price=%s WHERE id=%s",
+                                "UPDATE menu SET name=?, category=?, price=? WHERE id=?",
                                 (new_name, new_category, new_price, item_id)
                             )
                             conn.commit()
-                            cursor.close()
                             st.success("Item updated successfully.")
                 else:
                     st.error("Item not found.")
 
     elif choice == "View Sales Report":
         st.subheader("📊 Monthly Sales Report")
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT 
-                MONTH(o.date) AS month, 
-                SUM(oi.total_price) AS total_sales
+        report = cursor.execute("""
+            SELECT strftime('%m', o.date) AS month, SUM(oi.total_price) AS total_sales
             FROM order_items oi
             JOIN orders o ON oi.order_id = o.id
-            GROUP BY MONTH(o.date)
-        """)
-        report = cursor.fetchall()
-        cursor.close()
-
+            GROUP BY strftime('%m', o.date)
+        """).fetchall()
         if report:
             st.table(report)
-            st.bar_chart({f"Month {r['month']}": r['total_sales'] for r in report})
+            st.bar_chart({f"Month {r[0]}": r[1] for r in report})
         else:
             st.info("No sales data available yet.")
-
-    conn.close()
 
 # ----------------------------
 # Customer Section
 # ----------------------------
 else:
     st.header("🙋 Customer Portal")
-    conn = get_connection()
 
-    # Registration
     st.subheader("New Customer Registration")
     with st.form("register_form"):
         name = st.text_input("Name")
@@ -162,79 +159,61 @@ else:
         email = st.text_input("Email")
         register_btn = st.form_submit_button("Register")
         if register_btn and name and phone and email:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO customers (name, phone, email) VALUES (%s, %s, %s)", 
+            cursor.execute("INSERT INTO customers (name, phone, email) VALUES (?, ?, ?)", 
                            (name, phone, email))
             conn.commit()
             customer_id = cursor.lastrowid
-            cursor.close()
             st.success(f"Registered successfully! Your Customer ID is {customer_id}")
 
     st.markdown("---")
 
-    # Existing customer
     st.subheader("Existing Customer Login")
     customer_id = st.number_input("Enter Customer ID", min_value=1, step=1)
     if st.button("Login"):
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM customers WHERE id = %s", (customer_id,))
-        customer = cursor.fetchone()
-        cursor.close()
-
+        customer = cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
         if customer:
-            st.success(f"Welcome back, {customer['name']}!")
+            st.success(f"Welcome back, {customer[1]}!")
 
             menu_tab, order_tab = st.tabs(["🍽️ View Menu", "🛍️ Place Order"])
 
-            # View Menu
             with menu_tab:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM menu")
-                menu_items = cursor.fetchall()
-                cursor.close()
+                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
                 if menu_items:
                     st.table(menu_items)
                 else:
                     st.info("Menu not available.")
 
-            # Place Order
             with order_tab:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT * FROM menu")
-                menu_items = cursor.fetchall()
-                cursor.close()
-
+                menu_items = cursor.execute("SELECT * FROM menu").fetchall()
                 if menu_items:
                     order = []
                     st.write("Select items to order:")
-
                     for item in menu_items:
                         qty = st.number_input(
-                            f"{item['name']} (${item['price']})", min_value=0, step=1, key=f"item_{item['id']}"
+                            f"{item[1]} (${item[3]})", min_value=0, step=1, key=f"item_{item[0]}"
                         )
                         if qty > 0:
-                            order.append((item["id"], qty, float(item["price"]) * qty))
+                            order.append((item[0], qty, float(item[3]) * qty))
 
                     upi_number = st.text_input("Enter UPI Number for payment")
 
                     if st.button("Place Order"):
                         if order:
-                            cursor = conn.cursor()
-                            cursor.execute("INSERT INTO orders (customer_id, date, upi_number) VALUES (%s, %s, %s)", 
-                                           (customer_id, datetime.now(), upi_number))
+                            cursor.execute(
+                                "INSERT INTO orders (customer_id, date, upi_number) VALUES (?, ?, ?)", 
+                                (customer_id, datetime.now(), upi_number)
+                            )
                             order_id = cursor.lastrowid
                             for item_id, qty, total_price in order:
                                 cursor.execute(
-                                    "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (%s, %s, %s, %s)",
+                                    "INSERT INTO order_items (order_id, item_id, quantity, total_price) VALUES (?, ?, ?, ?)",
                                     (order_id, item_id, qty, total_price)
                                 )
                             conn.commit()
-                            cursor.close()
                             st.success(f"Order placed successfully! Your Order ID is {order_id}")
                         else:
                             st.warning("No items selected for order.")
-
+                else:
+                    st.info("Menu not available.")
         else:
             st.error("Invalid Customer ID.")
-
-    conn.close()
