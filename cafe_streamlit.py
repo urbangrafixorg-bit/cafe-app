@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 conn.commit()
 
 # ----------------------------
-# App UI Config
+# App Config
 # ----------------------------
 st.set_page_config(page_title="Cafe Central", page_icon="☕", layout="wide")
 st.title("☕ Cafe Central Management System")
@@ -55,28 +55,26 @@ st.title("☕ Cafe Central Management System")
 role = st.sidebar.radio("Login as:", ["Dashboard", "Customer", "Admin"])
 
 # ----------------------------
-# Dashboard (New!)
+# Dashboard
 # ----------------------------
 if role == "Dashboard":
     st.header("📊 Overview Dashboard")
     st.write("Welcome to **Cafe Central**! Here's a quick look at our cafe activity.")
 
-    # Quick stats
     total_customers = cursor.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
     total_orders = cursor.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
     total_sales = cursor.execute("SELECT COALESCE(SUM(total_price), 0) FROM order_items").fetchone()[0]
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("👥 Total Customers", total_customers)
+        st.metric("👥 Customers", total_customers)
     with col2:
-        st.metric("🛍️ Total Orders", total_orders)
+        st.metric("🛍️ Orders", total_orders)
     with col3:
-        st.metric("💰 Total Sales", f"${total_sales:,.2f}")
+        st.metric("💰 Sales", f"${total_sales:,.2f}")
 
     st.markdown("---")
 
-    # Show latest 5 orders
     st.subheader("🆕 Recent Orders")
     recent_orders = cursor.execute("""
         SELECT o.id, c.name, o.date, SUM(oi.total_price) as amount
@@ -90,7 +88,7 @@ if role == "Dashboard":
     if recent_orders:
         st.table(recent_orders)
     else:
-        st.info("No orders yet. Add some customers and orders to see data here!")
+        st.info("No orders yet.")
 
 # ----------------------------
 # Admin Section
@@ -162,42 +160,41 @@ elif role == "Admin":
                     st.error("Item not found.")
 
     elif choice == "View Sales Report":
-    st.subheader("📊 Sales Report")
+        st.subheader("📊 Sales Report")
 
-    report_type = st.radio("Select Report Type:", ["Daily", "Monthly"], horizontal=True)
+        report_type = st.radio("Select Report Type:", ["Daily", "Monthly"], horizontal=True)
 
-    if report_type == "Daily":
-        report = cursor.execute("""
-            SELECT strftime('%Y-%m-%d', o.date) AS day, SUM(oi.total_price) AS total_sales
-            FROM order_items oi
-            JOIN orders o ON oi.order_id = o.id
-            GROUP BY strftime('%Y-%m-%d', o.date)
-            ORDER BY day DESC
-        """).fetchall()
+        if report_type == "Daily":
+            report = cursor.execute("""
+                SELECT strftime('%Y-%m-%d', o.date) AS day, SUM(oi.total_price) AS total_sales
+                FROM order_items oi
+                JOIN orders o ON oi.order_id = o.id
+                GROUP BY strftime('%Y-%m-%d', o.date)
+                ORDER BY day DESC
+            """).fetchall()
 
-        if report:
-            st.write("### 🗓 Daily Sales")
-            st.table(report)
-            st.line_chart({r[0]: r[1] for r in report})
-        else:
-            st.info("No daily sales data available yet.")
+            if report:
+                st.write("### 🗓 Daily Sales")
+                st.table(report)
+                st.line_chart({r[0]: r[1] for r in report})
+            else:
+                st.info("No daily sales data available yet.")
 
-    else:  # Monthly
-        report = cursor.execute("""
-            SELECT strftime('%Y-%m', o.date) AS month, SUM(oi.total_price) AS total_sales
-            FROM order_items oi
-            JOIN orders o ON oi.order_id = o.id
-            GROUP BY strftime('%Y-%m', o.date)
-            ORDER BY month DESC
-        """).fetchall()
+        else:  # Monthly
+            report = cursor.execute("""
+                SELECT strftime('%Y-%m', o.date) AS month, SUM(oi.total_price) AS total_sales
+                FROM order_items oi
+                JOIN orders o ON oi.order_id = o.id
+                GROUP BY strftime('%Y-%m', o.date)
+                ORDER BY month DESC
+            """).fetchall()
 
-        if report:
-            st.write("### 📅 Monthly Sales")
-            st.table(report)
-            st.bar_chart({r[0]: r[1] for r in report})
-        else:
-            st.info("No monthly sales data available yet.")
-
+            if report:
+                st.write("### 📅 Monthly Sales")
+                st.table(report)
+                st.bar_chart({r[0]: r[1] for r in report})
+            else:
+                st.info("No monthly sales data available yet.")
 
 # ----------------------------
 # Customer Section
